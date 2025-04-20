@@ -30,6 +30,29 @@ GAME_WINDOW = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("2048 by @overstimulation on GitHub")
 
 
+def draw_grid(window):
+    # vertical lines
+    for col in range(1, COLS):
+        x = col * CELL_WIDTH
+        pygame.draw.line(window, OUTLINE_COLOUR, (x, 0), (x, HEIGHT), OUTLINE_THICKNESS)
+
+    # horizontal lines
+    for row in range(1, ROWS):
+        y = row * CELL_HEIGHT
+        pygame.draw.line(window, OUTLINE_COLOUR, (0, y), (WIDTH, y), OUTLINE_THICKNESS)
+
+    # border outline
+    pygame.draw.rect(window, OUTLINE_COLOUR, (0, 0, WIDTH, HEIGHT), OUTLINE_THICKNESS)
+
+
+def draw_elements(window):
+    window.fill(BACKGROUND_COLOUR)
+
+    draw_grid(window)
+
+    pygame.display.update()
+
+
 def main(window):
     clock = pygame.time.Clock()
     game_running = True
@@ -41,6 +64,8 @@ def main(window):
             if event.type == pygame.QUIT:
                 game_running = False
                 break
+
+        draw_elements(window)
 
     pygame.quit()
 
