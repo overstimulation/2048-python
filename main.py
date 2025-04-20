@@ -28,3 +28,22 @@ except pygame.error:
 
 GAME_WINDOW = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("2048 by @overstimulation on GitHub")
+
+
+def main(window):
+    clock = pygame.time.Clock()
+    game_running = True
+
+    while game_running:
+        clock.tick(FPS)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                game_running = False
+                break
+
+    pygame.quit()
+
+
+if __name__ == "__main__":
+    main(GAME_WINDOW)
