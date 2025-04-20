@@ -29,6 +29,10 @@ try:
 except pygame.error:
     FONT = pygame.font.SysFont(None, FONT_SIZE, bold=True)
 
+# --- Global Animation Flag ---
+# This flag will track if a tile animation is currently in progress
+IS_ANIMATING = False
+
 # --- Pygame Window Setup ---
 GAME_WINDOW = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("2048 by @overstimulation on GitHub")
@@ -146,6 +150,12 @@ def get_random_position(tiles):
 
 # --- Game Logic Functions ---
 def move_tiles(window, tiles, clock, direction):
+    # Declare IS_ANIMATING as global to modify it
+    global IS_ANIMATING
+
+    # Set the flag to True at the start of the move animation
+    IS_ANIMATING = True
+
     # Handles animation, movement, and merging of tiles
     updated = True  # Keep animating as long as tiles are moving or merging
     blocks = set()  # Prevent double merges in one move
@@ -187,9 +197,19 @@ def move_tiles(window, tiles, clock, direction):
         merge_check = lambda tile, next_tile: tile.x_position < next_tile.x_position - MOVE_VELOCITY
         move_check = lambda tile, next_tile: tile.x_position + MOVE_VELOCITY + CELL_WIDTH < next_tile.x_position
         ceiling = False
+    else:
+        # If direction is invalid, reset the animation flag and return
+        IS_ANIMATING = False
+        return
 
     # --- Animation Loop ---
     while updated:
+        # Handle events during animation to allow quitting but ignore other inputs
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()  # Exit the program cleanly
+
         tiles_to_remove = []
         clock.tick(FPS)
         updated = False
@@ -222,19 +242,28 @@ def move_tiles(window, tiles, clock, direction):
 
         # Remove merged tiles
         for tile in tiles_to_remove:
-            sorted_tiles.remove(tile)
+            try:
+                sorted_tiles.remove(tile)
+            except ValueError:
+                pass
 
         # Update tile positions in the main dictionary and redraw
         update_tiles(window, tiles, sorted_tiles)
 
     # Perform end-of-move actions (add new tile, check game over)
-    end_move(tiles)
+    game_state = end_move(tiles)
+
+    # Set the flag back to False after the animation is complete
+    IS_ANIMATING = False
+
+    return game_state
 
 
 def end_move(tiles):
     # Actions after tiles stop moving
     if len(tiles) == 16:
-        return "lost"  # Grid is full
+        # TODO: Implement a proper game over check (check if any moves are possible)
+        return "lost"  # Grid is full (basic check)
 
     # Add a new tile (2 or 4)
     row, col = get_random_position(tiles)
@@ -249,6 +278,7 @@ def update_tiles(window, tiles, sorted_tiles):
     for tile in sorted_tiles:
         tiles[f"{tile.row}{tile.col}"] = tile
 
+    # Redraw elements during the animation
     draw_elements(window, tiles)
 
 
@@ -279,19 +309,27 @@ def main(window):
                 game_running = False
                 break
 
-            if event.type == pygame.KEYDOWN:
+            # Only process key presses if no animation is in progress
+            if event.type == pygame.KEYDOWN and not IS_ANIMATING:
                 # Handle arrow key presses for movement
-                if event.key == pygame.K_UP:
-                    move_tiles(window, tiles, clock, "up")
-                if event.key == pygame.K_DOWN:
-                    move_tiles(window, tiles, clock, "down")
-                if event.key == pygame.K_LEFT:
-                    move_tiles(window, tiles, clock, "left")
-                if event.key == pygame.K_RIGHT:
-                    move_tiles(window, tiles, clock, "right")
+                if event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT):
+                    direction = None
+                    if event.key == pygame.K_UP:
+                        direction = "up"
+                    elif event.key == pygame.K_DOWN:
+                        direction = "down"
+                    elif event.key == pygame.K_LEFT:
+                        direction = "left"
+                    elif event.key == pygame.K_RIGHT:
+                        direction = "right"
 
-        # Drawing
-        draw_elements(window, tiles)
+                    # Only attempt to move if a valid direction was determined
+                    if direction:
+                        move_tiles(window, tiles, clock, direction)
+
+        # Drawing (ensure the initial state is drawn and updates happen during animation)
+        if not IS_ANIMATING:
+            draw_elements(window, tiles)
 
     pygame.quit()
 
