@@ -159,6 +159,7 @@ def move_tiles(window, tiles, clock, direction):
     # Handles animation, movement, and merging of tiles
     updated = True  # Keep animating as long as tiles are moving or merging
     blocks = set()  # Prevent double merges in one move
+    tile_moved_or_merged = False  # Flag to track if any tile moved or merged
 
     # --- Define direction-specific logic ---
     if direction == "up":
@@ -200,7 +201,7 @@ def move_tiles(window, tiles, clock, direction):
     else:
         # If direction is invalid, reset the animation flag and return
         IS_ANIMATING = False
-        return
+        return False  # No movement occurred
 
     # --- Animation Loop ---
     while updated:
@@ -220,6 +221,9 @@ def move_tiles(window, tiles, clock, direction):
             if boundary_check(tile):
                 continue
 
+            # Store initial position to check for movement later
+            initial_pos = (tile.x_position, tile.y_position)
+
             # Handle movement and merging conditions
             next_tile = get_next_tile(tile)
             if not next_tile:
@@ -238,25 +242,27 @@ def move_tiles(window, tiles, clock, direction):
 
             # Update grid position after potential movement
             tile.set_tile_position(ceiling)
-            updated = True  # Indicate that a tile moved
+
+            # Check if the tile actually moved
+            if initial_pos != (tile.x_position, tile.y_position):
+                updated = True  # Indicate that a tile moved
+                tile_moved_or_merged = True  # Set the flag if movement occurred
 
         # Remove merged tiles
         for tile in tiles_to_remove:
             try:
                 sorted_tiles.remove(tile)
+                tile_moved_or_merged = True  # Set the flag if merging occurred
             except ValueError:
                 pass
 
         # Update tile positions in the main dictionary and redraw
         update_tiles(window, tiles, sorted_tiles)
 
-    # Perform end-of-move actions (add new tile, check game over)
-    game_state = end_move(tiles)
-
     # Set the flag back to False after the animation is complete
     IS_ANIMATING = False
 
-    return game_state
+    return tile_moved_or_merged  # Return whether any tile moved or merged
 
 
 def end_move(tiles):
@@ -325,7 +331,14 @@ def main(window):
 
                     # Only attempt to move if a valid direction was determined
                     if direction:
-                        move_tiles(window, tiles, clock, direction)
+                        # Call move_tiles and check if a move or merge occurred
+                        move_occurred = move_tiles(window, tiles, clock, direction)
+                        # Spawn new tile only if a move or merge happened
+                        if move_occurred:
+                            game_state = end_move(tiles)
+                            # Handle game state - currently just passes
+                            if game_state == "lost":
+                                pass
 
         # Drawing (ensure the initial state is drawn and updates happen during animation)
         if not IS_ANIMATING:
