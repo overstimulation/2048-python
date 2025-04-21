@@ -21,6 +21,12 @@ For those who just want to jump in and play without any technical setup:
 4. Inside the extracted folder, find and run the `main.exe` file.
 5. Use your arrow keys to move the tiles on the grid. When two tiles with the same number touch, they merge into one tile with the sum of their values!
 
+## 📸 Screenshots
+
+![gameplay screenshot](screenshots/gameplay_screenshot.png)
+![game_over screenshot](screenshots/game_over_screenshot.png)
+![game_won screenshot](screenshots/game_won_screenshot.png)
+
 ## 💖 Contribution:
 Contributions are welcome! If you have ideas for improvements, bug fixes, or new features, feel free to open an issue or submit a pull request. Let's make this game even better together! 🤗
 
