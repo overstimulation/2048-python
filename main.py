@@ -38,6 +38,13 @@ GAME_STATE = "playing"  # Possible states: "playing", "won", "lost"
 
 # --- Pygame Window Setup ---
 GAME_WINDOW = pygame.display.set_mode((WIDTH, HEIGHT))
+
+try:
+    icon_surface = pygame.image.load("2048_icon.png")
+    pygame.display.set_icon(icon_surface)
+except pygame.error:
+    pass  # If icon fails to load, continue with default
+
 pygame.display.set_caption("2048 by @overstimulation on GitHub")
 
 
