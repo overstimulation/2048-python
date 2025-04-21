@@ -33,6 +33,9 @@ except pygame.error:
 # This flag will track if a tile animation is currently in progress
 IS_ANIMATING = False
 
+# --- Game State ---
+GAME_STATE = "playing"  # Possible states: "playing", "won", "lost"
+
 # --- Pygame Window Setup ---
 GAME_WINDOW = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("2048 by @overstimulation on GitHub")
@@ -74,9 +77,7 @@ class Tile:
 
         # Ensure the index does not exceed the maximum index in COLOURS
         colour_index = min(calculated_index, len(self.COLOURS) - 1)
-
-        colour = self.COLOURS[colour_index]
-        return colour
+        return self.COLOURS[colour_index]
 
     def draw_tile(self, window):
         # Draw the tile rectangle and the number text centered
@@ -127,23 +128,60 @@ def draw_elements(window, tiles):
 
     draw_grid(window)
 
-    pygame.display.update()
+
+def draw_game_over(window):
+    # Create a semi-transparent overlay to darken the background
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 128))  # RGBA: black with alpha for transparency
+    window.blit(overlay, (0, 0))
+
+    # Draw the message box in the center
+    message_box_width, message_box_height = 600, 200  # Box size for the overlay message
+    message_box_x = (WIDTH - message_box_width) // 2
+    message_box_y = (HEIGHT - message_box_height) // 2
+    pygame.draw.rect(window, BACKGROUND_COLOUR, (message_box_x, message_box_y, message_box_width, message_box_height))
+    pygame.draw.rect(
+        window, OUTLINE_COLOUR, (message_box_x, message_box_y, message_box_width, message_box_height), OUTLINE_THICKNESS
+    )
+
+    # Render and center the "Game Over!" and restart instructions
+    game_over_text = FONT.render("Game Over!", True, FONT_COLOUR)
+    restart_text = FONT.render("Press SPACE to Restart", True, FONT_COLOUR)
+    window.blit(game_over_text, game_over_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 30)))
+    window.blit(restart_text, restart_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 30)))
+
+
+def draw_game_won(window):
+    # Create a semi-transparent gold overlay to highlight the win
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((255, 215, 0, 128))  # RGBA: gold with alpha for transparency
+    window.blit(overlay, (0, 0))
+
+    # Draw the message box in the center
+    message_box_width, message_box_height = 700, 250  # Box size for the overlay message
+    message_box_x = (WIDTH - message_box_width) // 2
+    message_box_y = (HEIGHT - message_box_height) // 2
+    pygame.draw.rect(window, BACKGROUND_COLOUR, (message_box_x, message_box_y, message_box_width, message_box_height))
+    pygame.draw.rect(
+        window, OUTLINE_COLOUR, (message_box_x, message_box_y, message_box_width, message_box_height), OUTLINE_THICKNESS
+    )
+
+    # Render and center the win message and instructions
+    win_text = FONT.render("You Won!", True, FONT_COLOUR)
+    restart_text = FONT.render("Press SPACE to Restart", True, FONT_COLOUR)
+    continue_text = FONT.render("Press C to Keep Playing", True, FONT_COLOUR)
+    window.blit(win_text, win_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 60)))
+    window.blit(restart_text, restart_text.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
+    window.blit(continue_text, continue_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 60)))
 
 
 # --- Tile Generation and Placement ---
 def get_random_position(tiles):
     # Find a random empty position in the grid
-    row = None
-    col = None
-
     while True:
-        row = random.randrange(0, ROWS)
-        col = random.randrange(0, COLS)
-
+        row, col = random.randrange(ROWS), random.randrange(COLS)
         if f"{row}{col}" not in tiles:
-            break
-
-    return row, col
+            return row, col
 
 
 # --- Game Logic Functions ---
@@ -197,31 +235,23 @@ def move_tiles(window, tiles, clock, direction):
 
     # Simulate moves and merges
     for tile in sorted_tiles_for_simulation:
-        current_row = tile.row
-        current_col = tile.col
-
-        target_row = current_row
-        target_col = current_col
-
-        next_row = current_row + delta_row
-        next_col = current_col + delta_col
+        current_row, current_col = tile.row, tile.col
+        target_row, target_col = current_row, current_col
+        next_row, next_col = current_row + delta_row, current_col + delta_col
 
         while 0 <= next_row < ROWS and 0 <= next_col < COLS:
             next_tile = temp_grid[next_row][next_col]
 
             if next_tile is None:
                 # Move to the next empty cell in the simulation
-                target_row = next_row
-                target_col = next_col
-
+                target_row, target_col = next_row, next_col
                 # Update next cell to check
                 next_row += delta_row
                 next_col += delta_col
 
             elif next_tile.value == tile.value and not next_tile.merged_with:
                 # Merge with the next tile if values match and it hasn't been merged into this move
-                target_row = next_row
-                target_col = next_col
+                target_row, target_col = next_row, next_col
                 tiles_to_remove.append(tile)  # This tile will be removed visually and from the list later
                 next_tile.final_value *= 2  # Update the final value of the target tile
                 next_tile.merged_with = True  # Mark the target tile as merged into
@@ -229,8 +259,6 @@ def move_tiles(window, tiles, clock, direction):
 
                 # Update temp grid to reflect the merge: the moving tile is removed
                 temp_grid[current_row][current_col] = None
-                # The merged tile remains at (target_row, target_col) in temp_grid (conceptually)
-
                 break  # Stop checking in this direction after a merge
             else:
                 # Cannot move past the next tile (either different value or already merged into)
@@ -238,18 +266,14 @@ def move_tiles(window, tiles, clock, direction):
                 break
 
         # Set the tile's target grid position based on the simulation
-        tile.target_row = target_row
-        tile.target_col = target_col
-
+        tile.target_row, tile.target_col = target_row, target_col
         # If the tile's target is different from its current position, a move occurred
         if (tile.row, tile.col) != (tile.target_row, tile.target_col):
             move_or_merge_occurred = True
-
         # Update temp grid to reflect the tile's final simulated position if it wasn't removed by merge
-        if tile not in tiles_to_remove:
-            if temp_grid[current_row][current_col] == tile:  # Only move in temp_grid if it wasn't merged out
-                temp_grid[current_row][current_col] = None
-                temp_grid[tile.target_row][tile.target_col] = tile
+        if tile not in tiles_to_remove and temp_grid[current_row][current_col] == tile:
+            temp_grid[current_row][current_col] = None
+            temp_grid[tile.target_row][tile.target_col] = tile
 
     # If no move or merge occurred in the simulation, no animation is needed
     if not move_or_merge_occurred:
@@ -274,28 +298,21 @@ def move_tiles(window, tiles, clock, direction):
 
             target_x = tile.target_col * CELL_WIDTH
             target_y = tile.target_row * CELL_HEIGHT
-
             # Calculate the distance to the target pixel position
-            dx = target_x - tile.x_position
-            dy = target_y - tile.y_position
+            dx, dy = target_x - tile.x_position, target_y - tile.y_position
 
             # Move by MOVE_VELOCITY or the remaining distance, whichever is smaller
-            move_x = 0
-            move_y = 0
+            move_x = min(abs(dx), MOVE_VELOCITY) * (1 if dx > 0 else -1)
+            # If moving by MOVE_VELOCITY would overshoot, move exactly to the target
+            if abs(move_x) > abs(dx):
+                move_x = dx
+            tile.x_position += move_x
 
-            if dx != 0:
-                move_x = min(abs(dx), MOVE_VELOCITY) * (1 if dx > 0 else -1)
-                # If moving by MOVE_VELOCITY would overshoot, move exactly to the target
-                if abs(move_x) > abs(dx):
-                    move_x = dx
-                tile.x_position += move_x
-
-            if dy != 0:
-                move_y = min(abs(dy), MOVE_VELOCITY) * (1 if dy > 0 else -1)
-                # If moving by MOVE_VELOCITY would overshoot, move exactly to the target
-                if abs(move_y) > abs(dy):
-                    move_y = dy
-                tile.y_position += move_y
+            move_y = min(abs(dy), MOVE_VELOCITY) * (1 if dy > 0 else -1)
+            # If moving by MOVE_VELOCITY would overshoot, move exactly to the target
+            if abs(move_y) > abs(dy):
+                move_y = dy
+            tile.y_position += move_y
 
             # Check if the tile has reached its target pixel position
             if tile.x_position != target_x or tile.y_position != target_y:
@@ -309,7 +326,7 @@ def move_tiles(window, tiles, clock, direction):
         # Use unique keys for drawing to avoid clashes if multiple tiles end up at the same target temporarily
         drawing_tiles_during_animation = {f"{t.row}_{t.col}_{id(t)}": t for t in tile_list}
         draw_elements(window, drawing_tiles_during_animation)
-
+        pygame.display.update()
         clock.tick(FPS)
 
     # --- After animation, update actual tile grid positions, values, and remove merged tiles ---
@@ -318,11 +335,9 @@ def move_tiles(window, tiles, clock, direction):
     for tile in tile_list:
         if tile not in tiles_to_remove:
             # Update the tile's actual grid row and col to the target
-            tile.row = tile.target_row
-            tile.col = tile.target_col
+            tile.row, tile.col = tile.target_row, tile.target_col
             # Ensure pixel position is exactly at the center of the target cell
-            tile.x_position = tile.target_col * CELL_WIDTH
-            tile.y_position = tile.target_row * CELL_HEIGHT
+            tile.x_position, tile.y_position = tile.target_col * CELL_WIDTH, tile.target_row * CELL_HEIGHT
             # Update the tile's value to its final value AFTER animation
             tile.value = tile.final_value
             # Add to the new tiles dictionary using the final grid position as the key
@@ -333,6 +348,7 @@ def move_tiles(window, tiles, clock, direction):
 
     # Redraw one last time after the tiles dictionary is fully updated
     draw_elements(window, tiles)
+    pygame.display.update()
 
     IS_ANIMATING = False
     return move_or_merge_occurred  # Return whether any tile moved or merged
@@ -377,12 +393,47 @@ def generate_tiles():
     return tiles
 
 
+def is_game_over(tiles):
+    if len(tiles) < ROWS * COLS:
+        return False
+    for row in range(ROWS):
+        for col in range(COLS):
+            tile = tiles.get(f"{row}{col}")
+            if tile:
+                if col < COLS - 1:
+                    right_tile = tiles.get(f"{row}{col + 1}")
+                    if right_tile and right_tile.value == tile.value:
+                        return False
+                if row < ROWS - 1:
+                    down_tile = tiles.get(f"{row + 1}{col}")
+                    if down_tile and down_tile.value == tile.value:
+                        return False
+    return True
+
+
 # --- Main Game Loop ---
 def main(window):
+    global GAME_STATE
     clock = pygame.time.Clock()
     game_running = True
-
+    has_kept_playing = False
     tiles = generate_tiles()
+
+    # --- FORCE WIN FOR TESTING ---
+    # tiles["00"] = Tile(1024, 0, 0)
+    # tiles["01"] = Tile(1024, 0, 1)
+
+    # --- FORCE LOSE FOR TESTING ---
+    # tiles.clear()
+    # values = [
+    #     [2, 4, 2, 4],
+    #     [4, 2, 4, 2],
+    #     [2, 4, 2, 4],
+    #     [4, 2, 4, 2],
+    # ]
+    # for row in range(4):
+    #     for col in range(4):
+    #         tiles[f"{row}{col}"] = Tile(values[row][col], row, col)
 
     # Main loop
     while game_running:
@@ -392,12 +443,11 @@ def main(window):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 game_running = False
-                break
 
             # Only process key presses if no animation is in progress
             if event.type == pygame.KEYDOWN and not IS_ANIMATING:
                 # Handle arrow key presses for movement
-                if event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT):
+                if GAME_STATE == "playing":
                     direction = None
                     if event.key == pygame.K_UP:
                         direction = "up"
@@ -414,14 +464,38 @@ def main(window):
                         move_occurred = move_tiles(window, tiles, clock, direction)
                         # Spawn new tile only if a move or merge happened
                         if move_occurred:
-                            game_state = end_move(tiles)
-                            # Handle game state - currently just passes
-                            if game_state == "lost":
-                                pass
+                            # Check for win before end_move
+                            # Only show win screen if player hasn't chosen to keep playing
+                            if not has_kept_playing and any(tile.value == 2048 for tile in tiles.values()):
+                                GAME_STATE = "won"
+                            else:
+                                # Call end_move to add a new tile and check for loss
+                                game_state_result = end_move(tiles)
+                                if game_state_result == "lost":
+                                    GAME_STATE = "lost"
+                        else:
+                            # If no move occurred check if the game is over (no possible moves)
+                            if is_game_over(tiles):
+                                GAME_STATE = "lost"
+                elif GAME_STATE in ["won", "lost"]:
+                    if event.key == pygame.K_SPACE:
+                        # Restart the game
+                        tiles = generate_tiles()
+                        GAME_STATE = "playing"
+                        has_kept_playing = False  # Reset when restarting
+                    elif event.key == pygame.K_c and GAME_STATE == "won":
+                        # Continue playing after winning
+                        GAME_STATE = "playing"
+                        has_kept_playing = True  # Set when continuing
 
         # Drawing (ensure the initial state is drawn and updates happen during animation)
         if not IS_ANIMATING:
             draw_elements(window, tiles)
+            if GAME_STATE == "lost":  # Draw the lose overlay
+                draw_game_over(window)
+            elif GAME_STATE == "won":  # Draw the win overlay
+                draw_game_won(window)
+            pygame.display.update()
 
     pygame.quit()
 
