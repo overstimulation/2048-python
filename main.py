@@ -63,6 +63,10 @@ class Tile:
         self.col = col
         self.x_position = col * CELL_WIDTH
         self.y_position = row * CELL_HEIGHT
+        self.target_row = row
+        self.target_col = col
+        self.final_value = value
+        self.merged_with = False  # Flag to prevent double merges in one move
 
     def get_tile_colour(self):
         # Calculate the base index using log2
@@ -88,19 +92,10 @@ class Tile:
             ),
         )
 
-    def set_tile_position(self, ceiling=False):
-        # Update the tile's grid row and column based on pixel position
-        if ceiling:
-            self.col = math.ceil(self.x_position / CELL_WIDTH)
-            self.row = math.ceil(self.y_position / CELL_HEIGHT)
-        else:
-            self.col = math.floor(self.x_position / CELL_WIDTH)
-            self.row = math.floor(self.y_position / CELL_HEIGHT)
-
-    def move_tile(self, delta):
-        # Update the tile's pixel position
-        self.x_position += delta[0]
-        self.y_position += delta[1]
+    def move_tile(self, delta_x, delta_y):
+        # Update the tile's pixel position incrementally
+        self.x_position += delta_x
+        self.y_position += delta_y
 
 
 # --- Drawing Functions ---
@@ -124,7 +119,10 @@ def draw_elements(window, tiles):
     # Fill background, draw all tiles, then draw the grid
     window.fill(BACKGROUND_COLOUR)
 
-    for tile in tiles.values():
+    # Sort tiles by value for drawing, so smaller tiles are drawn first during animation
+    sorted_tiles_for_drawing = sorted(tiles.values(), key=lambda tile: tile.value)
+
+    for tile in sorted_tiles_for_drawing:
         tile.draw_tile(window)
 
     draw_grid(window)
@@ -156,136 +154,216 @@ def move_tiles(window, tiles, clock, direction):
     # Set the flag to True at the start of the move animation
     IS_ANIMATING = True
 
-    # Handles animation, movement, and merging of tiles
-    updated = True  # Keep animating as long as tiles are moving or merging
-    blocks = set()  # Prevent double merges in one move
-    tile_moved_or_merged = False  # Flag to track if any tile moved or merged
+    # Create a list of tiles for processing
+    tile_list = list(tiles.values())
+    tiles_to_remove = []
+    move_or_merge_occurred = False  # Flag to track if any tile moved or merged
 
-    # --- Define direction-specific logic ---
+    # Reset merge status for the new move
+    for tile in tile_list:
+        tile.merged_with = False
+        tile.final_value = tile.value  # Reset final value
+
+    # --- Simulate the move to determine target positions and merges ---
+
+    # Determine sort order and movement delta based on direction
     if direction == "up":
-        sort_function = lambda x: x.row
-        ascending_order = False
-        delta = (0, -MOVE_VELOCITY)
-        boundary_check = lambda tile: tile.row == 0
-        get_next_tile = lambda tile: tiles.get(f"{tile.row - 1}{tile.col}")
-        merge_check = lambda tile, next_tile: tile.y_position > next_tile.y_position + MOVE_VELOCITY
-        move_check = lambda tile, next_tile: tile.y_position > next_tile.y_position + MOVE_VELOCITY + CELL_HEIGHT
-        ceiling = True
+        sort_key = lambda tile: tile.row
+        reverse_sort = False
+        delta_row, delta_col = -1, 0
     elif direction == "down":
-        sort_function = lambda x: x.row
-        ascending_order = True
-        delta = (0, MOVE_VELOCITY)
-        boundary_check = lambda tile: tile.row == ROWS - 1
-        get_next_tile = lambda tile: tiles.get(f"{tile.row + 1}{tile.col}")
-        merge_check = lambda tile, next_tile: tile.y_position < next_tile.y_position - MOVE_VELOCITY
-        move_check = lambda tile, next_tile: tile.y_position + MOVE_VELOCITY + CELL_HEIGHT < next_tile.y_position
-        ceiling = False
+        sort_key = lambda tile: tile.row
+        reverse_sort = True
+        delta_row, delta_col = 1, 0
     elif direction == "left":
-        sort_function = lambda x: x.col
-        ascending_order = False
-        delta = (-MOVE_VELOCITY, 0)
-        boundary_check = lambda tile: tile.col == 0
-        get_next_tile = lambda tile: tiles.get(f"{tile.row}{tile.col - 1}")
-        merge_check = lambda tile, next_tile: tile.x_position > next_tile.x_position + MOVE_VELOCITY
-        move_check = lambda tile, next_tile: tile.x_position > next_tile.x_position + MOVE_VELOCITY + CELL_WIDTH
-        ceiling = True
+        sort_key = lambda tile: tile.col
+        reverse_sort = False
+        delta_row, delta_col = 0, -1
     elif direction == "right":
-        sort_function = lambda x: x.col
-        ascending_order = True
-        delta = (MOVE_VELOCITY, 0)
-        boundary_check = lambda tile: tile.col == COLS - 1
-        get_next_tile = lambda tile: tiles.get(f"{tile.row}{tile.col + 1}")
-        merge_check = lambda tile, next_tile: tile.x_position < next_tile.x_position - MOVE_VELOCITY
-        move_check = lambda tile, next_tile: tile.x_position + MOVE_VELOCITY + CELL_WIDTH < next_tile.x_position
-        ceiling = False
+        sort_key = lambda tile: tile.col
+        reverse_sort = True
+        delta_row, delta_col = 0, 1
     else:
-        # If direction is invalid, reset the animation flag and return
         IS_ANIMATING = False
-        return False  # No movement occurred
+        return False  # Invalid direction
+
+    # Sort tiles based on direction for simulation
+    sorted_tiles_for_simulation = sorted(tile_list, key=sort_key, reverse=reverse_sort)
+
+    # Create a temporary grid representation to simulate moves
+    temp_grid = [[None for _ in range(COLS)] for _ in range(ROWS)]
+    for tile in tile_list:
+        temp_grid[tile.row][tile.col] = tile  # Populate temp grid with current tiles
+
+    # Simulate moves and merges
+    for tile in sorted_tiles_for_simulation:
+        current_row = tile.row
+        current_col = tile.col
+
+        target_row = current_row
+        target_col = current_col
+
+        next_row = current_row + delta_row
+        next_col = current_col + delta_col
+
+        while 0 <= next_row < ROWS and 0 <= next_col < COLS:
+            next_tile = temp_grid[next_row][next_col]
+
+            if next_tile is None:
+                # Move to the next empty cell in the simulation
+                target_row = next_row
+                target_col = next_col
+
+                # Update next cell to check
+                next_row += delta_row
+                next_col += delta_col
+
+            elif next_tile.value == tile.value and not next_tile.merged_with:
+                # Merge with the next tile if values match and it hasn't been merged into this move
+                target_row = next_row
+                target_col = next_col
+                tiles_to_remove.append(tile)  # This tile will be removed visually and from the list later
+                next_tile.final_value *= 2  # Update the final value of the target tile
+                next_tile.merged_with = True  # Mark the target tile as merged into
+                move_or_merge_occurred = True  # Indicate a merge happened
+
+                # Update temp grid to reflect the merge: the moving tile is removed
+                temp_grid[current_row][current_col] = None
+                # The merged tile remains at (target_row, target_col) in temp_grid (conceptually)
+
+                break  # Stop checking in this direction after a merge
+            else:
+                # Cannot move past the next tile (either different value or already merged into)
+                # The tile stops at its current position before this blocking tile
+                break
+
+        # Set the tile's target grid position based on the simulation
+        tile.target_row = target_row
+        tile.target_col = target_col
+
+        # If the tile's target is different from its current position, a move occurred
+        if (tile.row, tile.col) != (tile.target_row, tile.target_col):
+            move_or_merge_occurred = True
+
+        # Update temp grid to reflect the tile's final simulated position if it wasn't removed by merge
+        if tile not in tiles_to_remove:
+            if temp_grid[current_row][current_col] == tile:  # Only move in temp_grid if it wasn't merged out
+                temp_grid[current_row][current_col] = None
+                temp_grid[tile.target_row][tile.target_col] = tile
+
+    # If no move or merge occurred in the simulation, no animation is needed
+    if not move_or_merge_occurred:
+        IS_ANIMATING = False
+        return False
 
     # --- Animation Loop ---
-    while updated:
-        # Handle events during animation to allow quitting but ignore other inputs
+    animation_complete = False
+    while not animation_complete:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
-                exit()  # Exit the program cleanly
+                exit()
 
-        tiles_to_remove = []
+        animation_complete = True  # Assume animation is complete unless a tile is still moving
+
+        for tile in tile_list:
+            # Animate all tiles that were initially part of this move
+            # Exclude tiles that are being removed by a merge from pixel movement calculation,
+            # but keep them in tile_list for drawing until the end of animation.
+            # Their target position was set during the simulation.
+
+            target_x = tile.target_col * CELL_WIDTH
+            target_y = tile.target_row * CELL_HEIGHT
+
+            # Calculate the distance to the target pixel position
+            dx = target_x - tile.x_position
+            dy = target_y - tile.y_position
+
+            # Move by MOVE_VELOCITY or the remaining distance, whichever is smaller
+            move_x = 0
+            move_y = 0
+
+            if dx != 0:
+                move_x = min(abs(dx), MOVE_VELOCITY) * (1 if dx > 0 else -1)
+                # If moving by MOVE_VELOCITY would overshoot, move exactly to the target
+                if abs(move_x) > abs(dx):
+                    move_x = dx
+                tile.x_position += move_x
+
+            if dy != 0:
+                move_y = min(abs(dy), MOVE_VELOCITY) * (1 if dy > 0 else -1)
+                # If moving by MOVE_VELOCITY would overshoot, move exactly to the target
+                if abs(move_y) > abs(dy):
+                    move_y = dy
+                tile.y_position += move_y
+
+            # Check if the tile has reached its target pixel position
+            if tile.x_position != target_x or tile.y_position != target_y:
+                animation_complete = False  # At least one tile is still moving
+
+        # Redraw elements during animation
+        # Draw all tiles in the initial tile_list at their current animated positions.
+        # Tiles marked for removal will be visually animated until they reach the target
+        # and are removed from the main tiles dictionary after the animation.
+        # We need to create a dictionary from the tile_list for draw_elements
+        # Use unique keys for drawing to avoid clashes if multiple tiles end up at the same target temporarily
+        drawing_tiles_during_animation = {f"{t.row}_{t.col}_{id(t)}": t for t in tile_list}
+        draw_elements(window, drawing_tiles_during_animation)
+
         clock.tick(FPS)
-        updated = False
-        sorted_tiles = sorted(tiles.values(), key=sort_function, reverse=ascending_order)
 
-        # Iterate and process tiles based on movement logic
-        for tile in sorted_tiles:
-            if boundary_check(tile):
-                continue
+    # --- After animation, update actual tile grid positions, values, and remove merged tiles ---
+    new_tiles = {}
 
-            # Store initial position to check for movement later
-            initial_pos = (tile.x_position, tile.y_position)
+    for tile in tile_list:
+        if tile not in tiles_to_remove:
+            # Update the tile's actual grid row and col to the target
+            tile.row = tile.target_row
+            tile.col = tile.target_col
+            # Ensure pixel position is exactly at the center of the target cell
+            tile.x_position = tile.target_col * CELL_WIDTH
+            tile.y_position = tile.target_row * CELL_HEIGHT
+            # Update the tile's value to its final value AFTER animation
+            tile.value = tile.final_value
+            # Add to the new tiles dictionary using the final grid position as the key
+            new_tiles[f"{tile.row}{tile.col}"] = tile
 
-            # Handle movement and merging conditions
-            next_tile = get_next_tile(tile)
-            if not next_tile:
-                tile.move_tile(delta)
-            elif tile.value == next_tile.value and tile not in blocks and next_tile not in blocks:
-                if merge_check(tile, next_tile):
-                    tile.move_tile(delta)
-                else:
-                    next_tile.value *= 2
-                    tiles_to_remove.append(tile)
-                    blocks.add(next_tile)
-            elif move_check(tile, next_tile):
-                tile.move_tile(delta)
-            else:
-                continue
+    tiles.clear()
+    tiles.update(new_tiles)
 
-            # Update grid position after potential movement
-            tile.set_tile_position(ceiling)
+    # Redraw one last time after the tiles dictionary is fully updated
+    draw_elements(window, tiles)
 
-            # Check if the tile actually moved
-            if initial_pos != (tile.x_position, tile.y_position):
-                updated = True  # Indicate that a tile moved
-                tile_moved_or_merged = True  # Set the flag if movement occurred
-
-        # Remove merged tiles
-        for tile in tiles_to_remove:
-            try:
-                sorted_tiles.remove(tile)
-                tile_moved_or_merged = True  # Set the flag if merging occurred
-            except ValueError:
-                pass
-
-        # Update tile positions in the main dictionary and redraw
-        update_tiles(window, tiles, sorted_tiles)
-
-    # Set the flag back to False after the animation is complete
     IS_ANIMATING = False
-
-    return tile_moved_or_merged  # Return whether any tile moved or merged
+    return move_or_merge_occurred  # Return whether any tile moved or merged
 
 
 def end_move(tiles):
     # Actions after tiles stop moving
-    if len(tiles) == 16:
-        # TODO: Implement a proper game over check (check if any moves are possible)
-        return "lost"  # Grid is full (basic check)
+    # Check for game over (no more possible moves)
+    if len(tiles) == ROWS * COLS:
+        # Basic check: if the grid is full, check if any merges are possible
+        for row in range(ROWS):
+            for col in range(COLS):
+                tile = tiles.get(f"{row}{col}")
+                if tile:
+                    # Check right
+                    if col < COLS - 1:
+                        right_tile = tiles.get(f"{row}{col + 1}")
+                        if right_tile and right_tile.value == tile.value:
+                            return "continue"  # Possible merge
+                    # Check down
+                    if row < ROWS - 1:
+                        down_tile = tiles.get(f"{row + 1}{col}")
+                        if down_tile and down_tile.value == tile.value:
+                            return "continue"  # Possible merge
+        return "lost"  # No possible moves
 
     # Add a new tile (2 or 4)
     row, col = get_random_position(tiles)
-    tiles[f"{row}{col}"] = Tile(random.choice([2, 4]), row, col)
+    if row is not None and col is not None:
+        tiles[f"{row}{col}"] = Tile(random.choice([2, 4]), row, col)
     return "continue"
-
-
-def update_tiles(window, tiles, sorted_tiles):
-    # Update the main tiles dictionary with new positions and redraw
-    tiles.clear()
-
-    for tile in sorted_tiles:
-        tiles[f"{tile.row}{tile.col}"] = tile
-
-    # Redraw elements during the animation
-    draw_elements(window, tiles)
 
 
 def generate_tiles():
@@ -293,7 +371,8 @@ def generate_tiles():
     tiles = {}
     for _ in range(2):
         row, col = get_random_position(tiles)
-        tiles[f"{row}{col}"] = Tile(2, row, col)
+        if row is not None and col is not None:
+            tiles[f"{row}{col}"] = Tile(2, row, col)
 
     return tiles
 
